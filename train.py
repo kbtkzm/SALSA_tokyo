@@ -111,7 +111,7 @@ def get_parser():
     # training parameters
     parser.add_argument("--env_base_seed", type=int, default=0,
                         help="Base seed for environments (-1 to use timestamp seed)")
-    parser.add_argument("--max_len", type=int, default=512,
+    parser.add_argument("--max_len", type=int, default=64, #512→64
                         help="Maximum sequences length")
     parser.add_argument("--batch_size", type=int, default=128,
                         help="Number of sentences per batch")
@@ -123,9 +123,9 @@ def get_parser():
                         help='Weight loss to emphasize higher bits?')
     parser.add_argument("--clip_grad_norm", type=float, default=5,
                         help="Clip gradients norm (0 to disable)")
-    parser.add_argument("--epoch_size", type=int, default=300000,
+    parser.add_argument("--epoch_size", type=int, default=2000000,
                         help="Epoch size / evaluation frequency")
-    parser.add_argument("--max_epoch", type=int, default=100000,
+    parser.add_argument("--max_epoch", type=int, default=30,
                         help="Maximum epoch size")
     parser.add_argument("--stopping_criterion", type=str, default="_valid_lattice_xe_loss,1,75",
                         help="Stopping criterion, and number of non-increase before stopping the experiment")

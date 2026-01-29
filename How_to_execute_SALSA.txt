@@ -1,0 +1,22 @@
+conda activate lattice_env
+cd SALSA
+
+ps aux | grep train.py
+pkill -f "python3 train.py"
+ps aux | grep run_rf_training.sh
+pkill -f "run_rf_training.sh"
+
+nohup python3 train.py --N 30 --Q 251 --sigma 3 --hamming 3  &  #次元、法、標準偏差、ハミング重みを変更しての実行はこれで行える。
+
+nohup ./run_rf_training.sh > run_rf_training.nohup 2>&1 &
+# または
+nohup bash run_rf_training.sh > run_rf_training.nohup 2>&1 &
+
+bash run_rf_training.sh
+
+python3 train.py --N 30 --Q 251 --sigma 3 --hamming 3 --a_reduced_source BKZ_sample_generater/RF=0.541  #次元、法、標準偏差、ハミング重みを変更しての実行はこれで行える。
+
+
+  "python3 train.py --N 50 --Q 251 --sigma 3 --hamming 3 --a_reduced_source BKZ_sample_generater/RF=0.864"
+  "python3 train.py --N 50 --Q 251 --sigma 3 --hamming 3 --a_reduced_source BKZ_sample_generater/RF=0.686"
+  "python3 train.py --N 50 --Q 251 --sigma 3 --hamming 3 --a_reduced_source BKZ_sample_generater/RF=0.541"

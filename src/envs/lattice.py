@@ -8,7 +8,6 @@ from logging import getLogger
 import os
 import io
 import sys
-import time
 
 # import math
 import numpy as np
@@ -50,7 +49,14 @@ class LatticeEnvironment(object):
             self.generator = generators.ModularMultiply(params, self.secret)
         elif self.operation == "circ_rlwe":
             # Random secret
-            self.generator = generators.RLWE(params, np.random.default_rng([int(params.env_base_seed)**2, int(time.time())]))
+            base_seed = int(params.env_base_seed)
+            if base_seed < 0:
+                logger.warning(
+                    "env_base_seed < 0 is no longer time-based; using 0 for deterministic secret generation."
+                )
+                base_seed = 0
+            seed_seq = np.random.SeedSequence([base_seed, int(params.N), int(params.Q)])
+            self.generator = generators.RLWE(params, np.random.default_rng(seed_seq))
         else:
             logger.error(f"Unknown operation {self.operation}")
 
@@ -255,6 +261,18 @@ class LatticeEnvironment(object):
         parser.add_argument(
             "--Q", type=int, default=251, help="modulo"
         )
+        parser.add_argument(
+            "--a_reduced_source",
+            type=str,
+            default="",
+            help="Relative/absolute path (directory or file) for A_reduced.npy used to sample A coefficients",
+        )
+        parser.add_argument(
+            "--fixed_secret_seed",
+            type=int,
+            default=-1,
+            help="If >= 0, use this seed to generate the RLWE secret only (keeps A/B randomness unchanged).",
+        )
 
         # Reuse samples
         parser.add_argument(
@@ -264,7 +282,7 @@ class LatticeEnvironment(object):
             "--num_reuse_samples", type=int, default=10000, help='number of samples to choose from during one reuse batch'
         )
         parser.add_argument(
-            "--times_reused", type=int, default=10, help='how many times to reuse a sample before discarding it?'
+            "--times_reused", type=int, default=1, help='how many times to reuse a sample before discarding it?'
         )
         parser.add_argument(
             "--K", type=int, default=1, help="if K > 1, will combine multiple reused samples"

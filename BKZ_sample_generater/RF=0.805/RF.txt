@@ -1,0 +1,15 @@
+std = 58.35260056488394
+Reduction Factor (RF) = 0.8053360074275009
+
+# ================================
+# パラメータ（VERDE と同じ構造）
+# ================================
+N = 192
+Q = 251
+m = N  # VERDE の RA ステップと同じ
+
+lll_penalty = 1   # VERDE では params.lll_penalty
+beta = 40         # block size (ここを変えるとRFが変わる)
+delta = 0.99      # LLL reduction parameter
+MAX_TIME = 60     # BKZ2 の1ループ最大時間
+# ================================

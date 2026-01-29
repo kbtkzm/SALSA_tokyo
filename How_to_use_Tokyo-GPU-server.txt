@@ -1,0 +1,157 @@
+========================================
+SALSA (original / modified) 実験手順書
+東大 Wisteria GPU (PJM) 環境用
+========================================
+
+【前提】
+- Wisteria/BDEC-01 (PJM)
+- GPU: NVIDIA A100
+- CUDA Driver: 12.x
+- 作業ディレクトリ: /work/04/gr44/r44000/
+- miniconda3 は /work/04/gr44/r44000/miniconda3 に配置済み
+- login node では実験・環境構築を行わない
+
+----------------------------------------
+1. ログインノードでの準備（最小限）
+----------------------------------------
+
+(任意) screen を使用する場合：
+$ screen -S salsa
+
+----------------------------------------
+2. GPU 計算ノードに入る（対話型）
+----------------------------------------
+pjstat
+pjattach
+
+$ pjsub -g gr44 -L rscgrp=gr44,gpu=2,elapse=72:00:00 --interact
+
+確認：
+$ hostname
+$ nvidia-smi
+→ A100 が見えれば OK
+
+※ 対話型ジョブは 1 本のみ
+※ 終了後は必ず exit / pjdel すること
+----------------------------------------
+2-1. shellスクリプトで3~9を自動化
+----------------------------------------
+
+source /work/gr44/r44000/SALSA/setup_salsa_env.sh
+
+source /work/gr44/r44000/SALSA_original/setup_salsa_env.sh
+
+----------------------------------------
+3. GPU ノードで conda を有効化
+----------------------------------------
+
+$ source /work/04/gr44/r44000/miniconda3/etc/profile.d/conda.sh
+$ conda activate
+
+----------------------------------------
+4. conda の作業ディレクトリを /work に固定
+（ToS / permission 問題回避）
+----------------------------------------
+
+$ export CONDA_PKGS_DIRS=/work/04/gr44/r44000/conda_pkgs
+$ export CONDA_ENVS_PATH=/work/04/gr44/r44000/conda_envs
+$ export XDG_CACHE_HOME=/work/04/gr44/r44000/conda_cache
+$ mkdir -p $CONDA_PKGS_DIRS $CONDA_ENVS_PATH $XDG_CACHE_HOME
+
+----------------------------------------
+5. conda 環境の作成(必ずやらないとダメ)
+----------------------------------------
+
+$ conda create -n salsa_env -y --override-channels -c conda-forge python=3.9 pip
+$ conda activate salsa_env
+
+----------------------------------------
+6. CUDA 対応 PyTorch のインストール(必ずやらないとダメ)
+----------------------------------------
+
+※ README の requirements.txt は使わない
+
+$ conda install -y --override-channels --strict-channel-priority -c pytorch -c nvidia -c conda-forge pytorch torchvision pytorch-cuda=12.1
+
+----------------------------------------
+7. CUDA が有効か確認（必須チェック）
+----------------------------------------
+
+$ python - << 'EOF'
+import torch
+print("torch:", torch.__version__)
+print("torch.version.cuda:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("gpu:", torch.cuda.get_device_name(0))
+EOF
+
+期待される出力：
+- torch.version.cuda != None
+- cuda available: True
+- GPU 名が A100
+
+※ ここが通らなければ次に進まない
+
+----------------------------------------
+9. SALSA の依存関係（最小構成）
+----------------------------------------
+
+requirements.txt は conda explicit spec のため pip では使わない。
+必要最小限のみインストールする。
+
+$ pip install numpy scipy tqdm pyyaml tensorboard
+
+----------------------------------------
+10. SALSA Quickstart 実行（動作確認）
+----------------------------------------
+
+$ python train.py
+
+- 学習ログが流れる
+- epoch が進む
+- nvidia-smi で GPU 使用率が上がる
+
+→ 成功
+
+----------------------------------------
+11. 実験パラメータの変更方法
+----------------------------------------
+
+(1) コマンドライン引数で変更：
+例：
+$ python train.py --N 50 --sigma 3 --hamming 5
+
+(2) src/train.py / src/envs/lattice.py のデフォルトを変更
+
+(3) slurm_params/*.json を編集して sweep 用に利用
+※ PJM 環境では slurm 部分は参考のみ
+
+----------------------------------------
+12. 改造版 SALSA を使う場合
+----------------------------------------
+
+- clone するリポジトリが変わるだけ
+- 環境構築手順は完全に同一
+- 依存関係を追加した場合のみ pip install を追加
+
+----------------------------------------
+13. 実験終了時
+----------------------------------------
+
+対話型ジョブを必ず終了：
+
+$ exit
+または
+$ pjdel <JOB_ID>
+
+----------------------------------------
+備考
+----------------------------------------
+
+- login node で conda / pip / train.py を実行しない
+- requirements.txt をそのまま使うと CPU版 PyTorch が入る
+- conda WARNING (/pjmhome/.conda) は無視してよい
+- この手順は SALSA / VERDE / PICANTE 系に流用可能
+
+========================================

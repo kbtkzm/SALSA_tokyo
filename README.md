@@ -28,6 +28,7 @@ In our paper, we experiment with the following parameters. All others remained f
   - ```reuse```: boolean flag determining if you reuse samples
   - ```num_reuse_samples```: number of LWE samples held for reuse at any given time
   - ```times_reused```: number of times you reuse a sample before discarding it
+  - For RF comparison runs, we recommend ```--reuse false``` or ```--times_reused 1``` to avoid very short epochs from reuse/recombine.
   - ```sigma```: stdev of error distribution used in LWE
   - ```hamming```: Hamming weight of binary LWE secret
   - ```input_int_base```: integer encoding base for transformer inputs
@@ -65,5 +66,4 @@ Please use the following citation for this repository.
 
 SALSA is licensed, as per the license found in the LICENSE file.
 See the [CONTRIBUTING](CONTRIBUTING.md) file for how to help out.
-
 
