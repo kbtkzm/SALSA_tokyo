@@ -8,12 +8,12 @@ import os
 # ================================
 # パラメータ（VERDE と同じ構造）
 # ================================
-N = 256
+N = 30
 Q = 251
 m = N  # VERDE の RA ステップと同じ
 
 lll_penalty = 1   # VERDE では params.lll_penalty
-beta = 50         # block size (ここを変えるとRFが変わる)
+beta = 20         # block size (ここを変えるとRFが変わる)
 delta = 0.99      # LLL reduction parameter
 MAX_TIME = 60     # BKZ2 の1ループ最大時間
 # ================================

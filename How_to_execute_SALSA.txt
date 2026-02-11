@@ -14,7 +14,7 @@ nohup bash run_rf_training.sh > run_rf_training.nohup 2>&1 &
 
 bash run_rf_training.sh
 
-python3 train.py --N 30 --Q 251 --sigma 3 --hamming 3 --a_reduced_source BKZ_sample_generater/RF=0.541  #次元、法、標準偏差、ハミング重みを変更しての実行はこれで行える。
+python3 train.py --N 30 --Q 251 --sigma 3 --hamming 3 --a_reduced_source BKZ_sample_generater/RF=0.811 --epoch_size 3300  #次元、法、標準偏差、ハミング重みを変更しての実行はこれで行える。
 
 
   "python3 train.py --N 50 --Q 251 --sigma 3 --hamming 3 --a_reduced_source BKZ_sample_generater/RF=0.864"
