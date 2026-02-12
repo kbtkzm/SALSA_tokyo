@@ -253,6 +253,12 @@ class LatticeEnvironment(object):
             "--operation", type=str, default="circ_rlwe", help="Operation performed"
         )
         parser.add_argument(
+            "--matrix_mode",
+            type=str,
+            default="circulant",
+            help="Matrix mode: circulant (default) or general.",
+        )
+        parser.add_argument(
             "--generator", type=str, default="uniform", help="Random generation of coefficients"
         )
         parser.add_argument(
@@ -266,6 +272,30 @@ class LatticeEnvironment(object):
             type=str,
             default="",
             help="Relative/absolute path (directory or file) for A_reduced.npy used to sample A coefficients",
+        )
+        parser.add_argument(
+            "--a_reduced_mode",
+            type=str,
+            default="elements",
+            help="How to use A_reduced: elements (sample entries) or matrix (sample full matrices).",
+        )
+        parser.add_argument(
+            "--ab_reduced_source",
+            type=str,
+            default="",
+            help="Relative/absolute path (directory) containing A_reduced.npy and b_reduced.npy for paired samples.",
+        )
+        parser.add_argument(
+            "--b_reduced_source",
+            type=str,
+            default="",
+            help="Relative/absolute path (directory or file) for b_reduced.npy paired with A_reduced.npy.",
+        )
+        parser.add_argument(
+            "--secret_source",
+            type=str,
+            default="",
+            help="Relative/absolute path to secret.npy to use for secret evaluation.",
         )
         parser.add_argument(
             "--fixed_secret_seed",

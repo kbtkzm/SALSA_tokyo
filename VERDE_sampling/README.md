@@ -1,18 +1,20 @@
 # VERDE sampling (BKZ pre-processing)
 
-This folder contains helper scripts to generate original (A, b) samples from a stored secret and then BKZ-reduce each sample to produce reduced vectors (Option B).
+This folder contains helper scripts to generate original (A, b) samples from a stored secret and then BKZ-reduce each sample.
 
 Design assumptions based on the current discussion:
 - Each dimension folder (e.g. `n=80`) contains a `secret.npy` with **one** secret vector `s` of shape `(n,)`.
 - By default, each sample uses a random vector `a` to build a **circulant** matrix `A = circulant(a)`, then `b = A·s + e (mod q)` (uniform-style).
 - BKZ reduction is applied to each `A`, producing a transformation matrix `R`.
-- We compute `A' = R·A (mod q)`, then extract each row of `A'` as a reduced vector `a'`.
-- For each `a'`, we recompute `b' = circulant(a')·s + e (mod q)` (Option B).
-- We save `A_reduced.npy` as a vector pool (shape: `num_samples * n, n`) and `b_reduced.npy` as paired vectors.
+- Two output modes:
+  - `vector_pool` (Option B): extract each row of `A'` as `a'`, recompute `b' = circulant(a')·s + e`.
+    Saves `A_reduced.npy` as `(num_samples * n, n)` and `b_reduced.npy` as `(num_samples * n, n)`.
+  - `matrix_pair` (VERDE-style): save `A' = R·A` and `b' = R·b`.
+    Saves `A_reduced.npy` as `(num_samples, n, n)` and `b_reduced.npy` as `(num_samples, n)`.
 
 Scripts
 - `generate_original_samples.py`: generate original `A_original.npy` and `b_original.npy` from `secret.npy`.
-- `reduce_samples_bkz.py`: BKZ-reduce `A_original.npy` and export `A_reduced.npy` / `b_reduced.npy` as vector pools (Option B).
+- `reduce_samples_bkz.py`: BKZ-reduce `A_original.npy` and export reduced data using `--output_mode`.
 
 Typical usage (per dimension folder):
 ```

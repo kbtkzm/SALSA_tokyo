@@ -58,14 +58,19 @@ class RLWE(Generator):
         self.maxQ_prob = params.maxQ_prob
         self.percQ_bound = params.percQ_bound
         self.correctQ = params.correctQ
+        self.matrix_mode = getattr(params, "matrix_mode", "circulant")
+        self.a_reduced_mode = getattr(params, "a_reduced_mode", "elements")
         self.q2_correction = np.vectorize(self.q2_correct)
         self.fixed_secret_seed = params.fixed_secret_seed
         if self.fixed_secret_seed >= 0:
             self.secret_rng = np.random.default_rng(int(self.fixed_secret_seed))
         else:
             self.secret_rng = self.rng
+        self.ab_reduced_A, self.ab_reduced_b, self.ab_reduced_path = self._load_ab_reduced(
+            params.ab_reduced_source, params.a_reduced_source, params.b_reduced_source
+        )
         self.a_reduced_pool, self.a_reduced_path = self._load_a_reduced_pool(
-            params.a_reduced_source
+            params.a_reduced_source if self.ab_reduced_A is None else ""
         )
         self._logged_a_reduced_usage = False
 
@@ -105,7 +110,14 @@ class RLWE(Generator):
                 arr = data["A_reduced"]
             else:
                 arr = np.load(path)
-            pool = np.array(arr, dtype=np.int64).reshape(-1)
+            pool = np.array(arr, dtype=np.int64)
+            if self.matrix_mode == "general" and self.a_reduced_mode == "matrix":
+                if pool.ndim != 3 or pool.shape[1:] != (self.N, self.N):
+                    raise ValueError(
+                        f"A_reduced.npy must have shape (num,{self.N},{self.N}) for matrix mode; got {pool.shape}"
+                    )
+            else:
+                pool = pool.reshape(-1)
             if pool.size == 0:
                 raise ValueError(f"A_reduced.npy is empty: {path}")
         except Exception as exc:
@@ -116,7 +128,48 @@ class RLWE(Generator):
         logger.info(f"Loaded A_reduced pool from {path} (size={pool.size})")
         return pool, path
 
+    def _load_ab_reduced(self, ab_source, a_source, b_source):
+        if not ab_source and not b_source:
+            return None, None, None
+        if ab_source:
+            base = os.path.abspath(os.path.expanduser(ab_source))
+            a_path = os.path.join(base, "A_reduced.npy")
+            b_path = os.path.join(base, "b_reduced.npy")
+        else:
+            a_path = os.path.abspath(os.path.expanduser(a_source)) if a_source else ""
+            b_path = os.path.abspath(os.path.expanduser(b_source)) if b_source else ""
+            if os.path.isdir(a_path):
+                a_path = os.path.join(a_path, "A_reduced.npy")
+            if os.path.isdir(b_path):
+                b_path = os.path.join(b_path, "b_reduced.npy")
+        if not a_path or not b_path:
+            return None, None, None
+        if not (os.path.isfile(a_path) and os.path.isfile(b_path)):
+            raise FileNotFoundError(f"A_reduced.npy or b_reduced.npy not found at: {a_path}, {b_path}")
+        A = np.load(a_path)
+        B = np.load(b_path)
+        if A.ndim != 3 or A.shape[1:] != (self.N, self.N):
+            raise ValueError(f"A_reduced.npy shape {A.shape} does not match (num,{self.N},{self.N})")
+        if B.ndim != 2 or B.shape[1] != self.N:
+            raise ValueError(f"b_reduced.npy shape {B.shape} does not match (num,{self.N})")
+        if A.shape[0] != B.shape[0]:
+            raise ValueError(f"A_reduced.npy and b_reduced.npy have different counts: {A.shape[0]} vs {B.shape[0]}")
+        logger.info(f"Loaded A_reduced/b_reduced samples from {os.path.dirname(a_path)} (count={A.shape[0]})")
+        return A.astype(np.int64), B.astype(np.int64), os.path.dirname(a_path)
+
     def getSecrets(self, params):
+        if getattr(params, "secret_source", ""):
+            path = os.path.abspath(os.path.expanduser(params.secret_source))
+            if os.path.isdir(path):
+                path = os.path.join(path, "secret.npy")
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"secret.npy not found at: {path}")
+            s = np.load(path)
+            s = np.array(s, dtype=np.int64).reshape(-1)
+            if s.shape[0] != self.N:
+                raise ValueError(f"secret.npy shape {s.shape} does not match N={self.N}")
+            secrets = [s]
+            return secrets
         secrets = [self.genSecretKey(params.secrettype, self.N)]
         return secrets
 
@@ -198,57 +251,84 @@ class RLWE(Generator):
     def get_sample(self, rng, idx, currN=-1):
         # Use passed-in N if it isn't 0.
         N = currN if currN > 0 else self.N
+        if self.ab_reduced_A is not None:
+            if self.matrix_mode != "general":
+                logger.warning("ab_reduced_source provided but matrix_mode is not general; using general for this run.")
+            j = rng.randint(0, self.ab_reduced_A.shape[0])
+            return self.ab_reduced_A[j], self.ab_reduced_b[j]
         if self.a_reduced_pool is not None:
             if not self._logged_a_reduced_usage:
                 logger.info(
                     f"Sampling a from A_reduced pool (path={self.a_reduced_path}, size={self.a_reduced_pool.size})"
                 )
                 self._logged_a_reduced_usage = True
-            a = rng.choice(self.a_reduced_pool, size=N, replace=True).astype(np.int64)
-            a = a % self.Q
-            c = circulant(a)
-            tri = np.triu_indices(N, 1)
-            c[tri] *= -1
-            if self.correctQ:
-                c = self.q2_correction(c)
-            c = c % self.Q
-
-            assert (np.min(c) >= 0) and (np.max(c) < self.Q)
-
-            if self.error:
-                e = np.int64(rng.normal(0, self.sigma, size=self.N).round())
-                b = (np.inner(c, self.secrets[idx]) + e) % self.Q
+            if self.matrix_mode == "general":
+                if self.a_reduced_mode == "matrix" and self.a_reduced_pool.ndim == 3:
+                    c = self.a_reduced_pool[rng.randint(0, self.a_reduced_pool.shape[0])].astype(np.int64) % self.Q
+                else:
+                    # elements mode: sample entries from pool to build A
+                    pool = self.a_reduced_pool.reshape(-1)
+                    idxs = rng.integers(0, pool.size, size=(N, N))
+                    c = pool[idxs].astype(np.int64) % self.Q
+                assert (np.min(c) >= 0) and (np.max(c) < self.Q)
+                if self.error:
+                    e = np.int64(rng.normal(0, self.sigma, size=self.N).round())
+                    b = (c @ self.secrets[idx] + e) % self.Q
+                else:
+                    b = (c @ self.secrets[idx]) % self.Q
+                if self.correctQ:
+                    b = self.q2_correction(b)
+                return c, b
             else:
-                b = np.inner(c, self.secrets[idx]) % self.Q
+                a = rng.choice(self.a_reduced_pool, size=N, replace=True).astype(np.int64)
+                a = a % self.Q
+                c = circulant(a)
+                tri = np.triu_indices(N, 1)
+                c[tri] *= -1
+                if self.correctQ:
+                    c = self.q2_correction(c)
+                c = c % self.Q
 
-            if self.correctQ:
-                b = self.q2_correction(b)
+                assert (np.min(c) >= 0) and (np.max(c) < self.Q)
 
-            return c, b
+                if self.error:
+                    e = np.int64(rng.normal(0, self.sigma, size=self.N).round())
+                    b = (np.inner(c, self.secrets[idx]) + e) % self.Q
+                else:
+                    b = np.inner(c, self.secrets[idx]) % self.Q
+
+                if self.correctQ:
+                    b = self.q2_correction(b)
+
+                return c, b
         if (self.rng.uniform() < self.maxQ_prob):
             maxQ = self.Q
         else: 
             maxQ = self.percQ_bound * self.Q
 
-        # sample a uniformly from Z_q^n
-        a = rng.randint(0, maxQ, size=N, dtype=np.int64)
+        if self.matrix_mode == "general":
+            c = rng.randint(0, maxQ, size=(N, N), dtype=np.int64)
+            c = c % self.Q
+        else:
+            # sample a uniformly from Z_q^n
+            a = rng.randint(0, maxQ, size=N, dtype=np.int64)
 
-        # do the circulant:
-        c = circulant(a)
-        tri = np.triu_indices(N, 1)
-        c[tri] *= -1
-        if self.correctQ:
-            c = self.q2_correction(c)
+            # do the circulant:
+            c = circulant(a)
+            tri = np.triu_indices(N, 1)
+            c[tri] *= -1
+            if self.correctQ:
+                c = self.q2_correction(c)
 
-        c = c % self.Q
+            c = c % self.Q
 
         assert (np.min(c) >= 0) and (np.max(c) < self.Q)
 
         if self.error:
             e = np.int64(rng.normal(0, self.sigma, size = self.N).round())
-            b = (np.inner(c, self.secrets[idx]) + e) % self.Q
+            b = (c @ self.secrets[idx] + e) % self.Q
         else:
-            b = np.inner(c, self.secrets[idx]) % self.Q
+            b = (c @ self.secrets[idx]) % self.Q
 
         if self.correctQ:
             b = self.q2_correction(b)

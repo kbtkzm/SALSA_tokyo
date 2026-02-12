@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """
-BKZ-reduce original samples and export reduced vectors for circulant training (Option B).
+BKZ-reduce original samples.
 
 Input:
 - A_original.npy (num_samples, n, n)
-- b_original.npy (num_samples, n)  [not used for B, kept for reference]
-- secret.npy (n,)
+- b_original.npy (num_samples, n)
+- secret.npy (n,)  [only for output_mode=vector_pool]
 
 Output:
-- A_reduced.npy (num_samples * n, n)   # vector pool (rows of A')
-- b_reduced.npy (num_samples * n,)     # b' recomputed from a' (circulant)
+- output_mode=vector_pool (Option B):
+  - A_reduced.npy (num_samples * n, n)   # vector pool (rows of A')
+  - b_reduced.npy (num_samples * n, n)   # b' recomputed from a' (circulant)
+- output_mode=matrix_pair (VERDE-style):
+  - A_reduced.npy (num_samples, n, n)    # A' = R @ A
+  - b_reduced.npy (num_samples, n)       # b' = R @ b
 
 Option B:
 1) Run BKZ to get A' = R @ A (mod q)
@@ -23,6 +27,7 @@ import time
 from datetime import datetime
 import numpy as np
 from scipy.linalg import circulant
+from numpy.lib.format import open_memmap
 
 from fpylll import IntegerMatrix, GSO, LLL, BKZ, FPLLL
 from fpylll.algorithms.bkz2 import BKZReduction as BKZ2
@@ -35,6 +40,8 @@ def parse_args():
     p.add_argument("--q", type=int, default=251, help="modulus q")
     p.add_argument("--secret_path", type=str, default="", help="Path to secret.npy (default: out_dir/secret.npy)")
     p.add_argument("--sigma", type=float, default=3.0, help="stddev for gaussian error in b'")
+    p.add_argument("--output_mode", type=str, default="vector_pool",
+                   help="vector_pool (Option B) or matrix_pair (VERDE-style).")
     p.add_argument("--lll_penalty", type=int, default=15, help="embedding penalty (w) in VERDE")
     p.add_argument("--beta", type=int, default=5, help="BKZ block size")
     p.add_argument("--delta", type=float, default=0.99, help="LLL delta")
@@ -116,17 +123,24 @@ def main():
         raise ValueError(f"b_original.npy shape {b_all.shape} is invalid for n={args.n}")
 
     num_samples = A_all.shape[0]
-    # vector pool size = num_samples * n
-    A_red = np.zeros((num_samples * args.n, args.n), dtype=np.int64)
-    b_red = np.zeros((num_samples * args.n, args.n), dtype=np.int64)
+    a_red_path = os.path.join(out_dir, "A_reduced.npy")
+    b_red_path = os.path.join(out_dir, "b_reduced.npy")
+    if args.output_mode == "matrix_pair":
+        A_red = open_memmap(a_red_path, mode="w+", dtype=np.int64, shape=(num_samples, args.n, args.n))
+        b_red = open_memmap(b_red_path, mode="w+", dtype=np.int64, shape=(num_samples, args.n))
+    else:
+        # vector pool size = num_samples * n
+        A_red = open_memmap(a_red_path, mode="w+", dtype=np.int64, shape=(num_samples * args.n, args.n))
+        b_red = open_memmap(b_red_path, mode="w+", dtype=np.int64, shape=(num_samples * args.n, args.n))
 
-    secret_path = args.secret_path or os.path.join(out_dir, "secret.npy")
-    if not os.path.isfile(secret_path):
-        raise FileNotFoundError(f"secret.npy not found at {secret_path}")
-    s = np.load(secret_path).reshape(-1).astype(np.int64)
-    if s.shape[0] != args.n:
-        raise ValueError(f"secret.npy shape {s.shape} is invalid for n={args.n}")
-    rng = np.random.default_rng(0)
+    if args.output_mode != "matrix_pair":
+        secret_path = args.secret_path or os.path.join(out_dir, "secret.npy")
+        if not os.path.isfile(secret_path):
+            raise FileNotFoundError(f"secret.npy not found at {secret_path}")
+        s = np.load(secret_path).reshape(-1).astype(np.int64)
+        if s.shape[0] != args.n:
+            raise ValueError(f"secret.npy shape {s.shape} is invalid for n={args.n}")
+        rng = np.random.default_rng(0)
 
     def log_timing(elapsed_seconds: float):
         ts = datetime.now().strftime("%m/%d/%y %H:%M:%S")
@@ -155,13 +169,17 @@ def main():
             RA = RA[: args.n]
             Rb = Rb[: args.n]
 
-        # Option B: extract rows of RA as a' and recompute b' from circulant(a')
-        for j in range(args.n):
-            idx = i * args.n + j
-            a_vec = RA[j].astype(np.int64) % args.q
-            A_red[idx] = a_vec
-            b_vec = recompute_b_from_a(a_vec, s, args.q, args.sigma, rng)
-            b_red[idx] = b_vec
+        if args.output_mode == "matrix_pair":
+            A_red[i] = RA
+            b_red[i] = Rb
+        else:
+            # Option B: extract rows of RA as a' and recompute b' from circulant(a')
+            for j in range(args.n):
+                idx = i * args.n + j
+                a_vec = RA[j].astype(np.int64) % args.q
+                A_red[idx] = a_vec
+                b_vec = recompute_b_from_a(a_vec, s, args.q, args.sigma, rng)
+                b_red[idx] = b_vec
 
         if (i + 1) % 100 == 0:
             print(f"Reduced {i+1}/{num_samples} samples")
@@ -169,14 +187,16 @@ def main():
             elapsed = time.perf_counter() - batch_start
             log_timing(elapsed)
             batch_start = time.perf_counter()
+            # flush mmap buffers periodically
+            A_red.flush()
+            b_red.flush()
 
     total_elapsed = time.perf_counter() - batch_start
     log_timing(total_elapsed)
-
-    np.save(os.path.join(out_dir, "A_reduced.npy"), A_red)
-    np.save(os.path.join(out_dir, "b_reduced.npy"), b_red)
-    print("Saved:", os.path.join(out_dir, "A_reduced.npy"))
-    print("Saved:", os.path.join(out_dir, "b_reduced.npy"))
+    A_red.flush()
+    b_red.flush()
+    print("Saved:", a_red_path)
+    print("Saved:", b_red_path)
 
 
 if __name__ == "__main__":
